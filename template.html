@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DepthFlow 3D Parallax — Template</title>
+<!--
+  RENAISSANCE 3D PARALLAX TEMPLATE
+  Shopify Editions-style immersive backgrounds using DepthFlow POM shader.
+
+  SETUP:
+  1. Replace the paintings array below with your own images
+  2. Generate depth maps at: https://huggingface.co/spaces/depth-anything/Depth-Anything-V2
+  3. Place image + depth files in the same directory as this HTML
+  4. Customize colors, sections, and content
+
+  REQUIRED FILES PER PAINTING:
+  - {name}.jpg        (original image)
+  - {name}-depth.png  (grayscale depth map, white=near, black=far)
+-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<style>
+/* ═══ BASE ═══ */
+:root{--ease:cubic-bezier(0.16,1,0.3,1)}
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+body{font-family:Georgia,serif;color:#fff;background:#000;overflow-x:hidden}
+
+/* ═══ THREE.JS CANVAS ═══ */
+#bg3d{position:fixed;top:0;left:0;z-index:0}
+
+/* ═══ GRAIN OVERLAY ═══ */
+.grain{position:fixed;inset:0;z-index:9998;pointer-events:none;opacity:.025;mix-blend-mode:multiply}
+
+/* ═══ CONTENT ═══ */
+.page{position:relative;z-index:5;pointer-events:none}
+.page>*{pointer-events:auto}
+.section{min-height:100vh;display:flex;align-items:center;justify-content:center;text-align:center;padding:40px}
+.section h2{font-size:clamp(36px,6vw,72px);font-weight:300;text-shadow:0 4px 40px rgba(0,0,0,.6)}
+
+/* ═══ GLASSMORPHIC CARD ═══ */
+.glass-card{
+  background:rgba(255,255,255,.08);
+  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border:1px solid rgba(255,255,255,.1);
+  border-radius:16px;padding:40px;
+  box-shadow:0 8px 32px rgba(0,0,0,.2);
+  max-width:600px;margin:0 auto;
+}
+.glass-card p{color:rgba(255,255,255,.7);line-height:1.7}
+
+/* ═══ SCROLL REVEAL ═══ */
+.rv{opacity:0;transform:translateY(32px);transition:opacity .8s var(--ease),transform .8s var(--ease)}
+.rv.vis{opacity:1;transform:none}
+
+/* ═══ FULL-SCREEN PROJECT SHOWCASE ═══ */
+.project-screen{min-height:85vh;display:flex;align-items:center;padding:0 60px;position:relative}
+.project-inner{max-width:520px;position:relative}
+.project-inner::before{content:'';position:absolute;left:-40px;top:0;bottom:0;width:1px;background:linear-gradient(to bottom,transparent,rgba(255,255,255,.15) 20%,rgba(255,255,255,.15) 80%,transparent)}
+.project-label{font-family:monospace;font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:#c9a96e;margin-bottom:16px;display:flex;align-items:center;gap:12px}
+.project-label::after{content:'';flex:1;height:1px;background:linear-gradient(to right,#8a7a55,transparent);max-width:120px}
+.project-title{font-size:clamp(32px,5vw,56px);font-weight:700;line-height:1.1;margin-bottom:20px;text-shadow:0 4px 30px rgba(0,0,0,.5)}
+.project-desc{font-size:15px;color:rgba(255,255,255,.6);line-height:1.8;margin-bottom:32px}
+.project-stat{display:flex;align-items:baseline;gap:14px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,.06)}
+.project-stat-num{font-family:monospace;font-size:clamp(40px,7vw,72px);font-weight:700;background:linear-gradient(135deg,#fff 60%,#c9a96e);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.project-stat-label{font-family:monospace;font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:rgba(255,255,255,.35)}
+.project-link{font-family:monospace;font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:#fff;padding:16px 36px;border:1px solid rgba(255,255,255,.15);display:inline-block;margin-top:24px;transition:all .5s var(--ease);position:relative;overflow:hidden;backdrop-filter:blur(8px);background:rgba(255,255,255,.04)}
+.project-link::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.1),rgba(201,169,110,.15));transform:scaleX(0);transform-origin:left;transition:transform .5s var(--ease);z-index:-1}
+.project-link:hover{color:#fff;border-color:#c9a96e;box-shadow:0 0 20px rgba(201,169,110,.2)}.project-link:hover::before{transform:scaleX(1)}
+.project-inner .project-label{opacity:0;transform:translateX(-20px);transition:all .6s .1s var(--ease)}
+.project-inner .project-title{opacity:0;transform:translateY(30px);transition:all .7s .2s var(--ease)}
+.project-inner .project-desc{opacity:0;transform:translateY(20px);transition:all .6s .35s var(--ease)}
+.project-inner .project-stat{opacity:0;transform:translateX(-30px);transition:all .6s .45s var(--ease)}
+.project-inner .project-link{opacity:0;transform:translateY(15px);transition:all .5s .55s var(--ease)}
+.project-inner.vis .project-label,.project-inner.vis .project-title,.project-inner.vis .project-desc,.project-inner.vis .project-stat,.project-inner.vis .project-link{opacity:1;transform:none}
+.project-dot{position:fixed;left:0;top:0;width:9px;height:9px;border-radius:50%;background:#c9a96e;box-shadow:0 0 16px rgba(201,169,110,.6),0 0 40px rgba(201,169,110,.2);z-index:50;pointer-events:none;transition:transform .8s var(--ease),opacity .5s;opacity:0}
+.project-dot.active{opacity:1}
+.project-dot::after{content:'';position:absolute;left:50%;top:50%;width:30px;height:30px;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(circle,rgba(201,169,110,.3),transparent 70%)}
+</style>
+</head>
+<body>
+
+<div class="grain"><svg><filter id="gf"><feTurbulence type="fractalNoise" baseFrequency=".7" numOctaves="3" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(#gf)"/></svg></div>
+
+<!-- ═══ CONTENT — customize your sections here ═══
+     data-scene must match a key in the sceneMap below
+-->
+<div class="page">
+  <section class="section" data-scene="painting-1">
+    <div class="rv">
+      <h2>First Scene</h2>
+    </div>
+  </section>
+
+  <section class="section" data-scene="painting-1">
+    <div class="glass-card rv">
+      <p>Your content for the first scene goes here. The background painting will have 3D depth parallax controlled by mouse movement.</p>
+    </div>
+  </section>
+
+  <section class="section" data-scene="painting-2">
+    <div class="rv">
+      <h2>Second Scene</h2>
+    </div>
+  </section>
+
+  <section class="section" data-scene="painting-2">
+    <div class="glass-card rv">
+      <p>As the user scrolls, a wave transition reveals this scene's painting. The metallic edge glow appears along the wave front.</p>
+    </div>
+  </section>
+
+  <section class="section" data-scene="painting-3">
+    <div class="rv">
+      <h2>Third Scene</h2>
+    </div>
+  </section>
+
+  <section class="section" data-scene="painting-3">
+    <div class="glass-card rv">
+      <p>Each painting only needs two files: the original image and an AI-generated depth map. No manual layer separation required.</p>
+    </div>
+  </section>
+
+  <!-- ═══ PROJECT SHOWCASE — full-screen immersive ═══ -->
+  <section class="project-screen" data-scene="painting-3">
+    <div class="project-inner rv">
+      <div class="project-label">Project One</div>
+      <h2 class="project-title">Your Project Title</h2>
+      <p class="project-desc">Description of your project. The 3D painting background is fully visible behind the text.</p>
+      <div class="project-stat"><span class="project-stat-num">99%</span><span class="project-stat-label">Key Metric</span></div>
+      <a href="#" class="project-link">View Project →</a>
+    </div>
+  </section>
+
+  <section class="project-screen" data-scene="painting-3">
+    <div class="project-inner rv">
+      <div class="project-label">Project Two</div>
+      <h2 class="project-title">Another Project</h2>
+      <p class="project-desc">Each project gets its own full-screen section with staggered entrance animations.</p>
+      <div class="project-stat"><span class="project-stat-num">1.2M</span><span class="project-stat-label">Users</span></div>
+      <a href="#" class="project-link">View Project →</a>
+    </div>
+  </section>
+</div>
+
+<script>
+(function(){
+/* ═══════════════════════════════════════════════════════════════════
+   DEPTHFLOW POM BACKGROUND ENGINE
+   DepthFlow Parallax Occlusion Mapping shader per painting.
+   Scroll-driven wave transitions with metallic edge glow.
+   Mouse drives parallax depth. Bloom + particles + atmosphere.
+
+   Based on DepthFlow by Tremeschin (CC BY-SA 4.0)
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════
+   CONFIGURATION — customize these values
+   ═══════════════════════════════════════ */
+const CONFIG = {
+  // Mouse parallax intensity (0.3–0.8, higher = more depth but may show edges)
+  parallaxStrength: 0.55,
+  // Mouse follow speed (0.01–0.05, lower = smoother/slower)
+  mouseSmoothing: 0.025,
+  // Depth map intensity (0.3–0.5)
+  depthHeight: 0.4,
+  // POM ray march quality (0.3=fast/rough, 0.85=slow/sharp)
+  pomQuality: 0.85,
+  // Wave transition speed (0.02–0.06)
+  waveSmoothing: 0.04,
+  // Bloom strength per painting (match array length to paintings)
+  bloomPerScene: [0.35, 0.5, 0.35],
+  // Particle count
+  particleCount: 150,
+  // Intro duration in seconds
+  introDuration: 2.0,
+};
+
+/* ═══════════════════════════════════════
+   PAINTINGS — replace with your own!
+   Required: img (JPG)
+   Optional: depth (PNG, null to disable POM), video (MP4), water (bool), spark ([x,y])
+   tint: [r, g, b] atmosphere color (0–0.2 range)
+   ═══════════════════════════════════════ */
+const paintings = [
+  { img: 'painting-1.jpg', depth: 'painting-1-depth.png', tint: [0.10, 0.08, 0.05] },
+  { img: 'painting-2.jpg', depth: null, tint: [0.03, 0.05, 0.10], video: 'painting-2-video.mp4' },
+  { img: 'painting-3.jpg', depth: null, tint: [0.10, 0.06, 0.04], water: true },
+  // Example with spark: { img: 'painting-4.jpg', depth: 'painting-4-depth.png', tint: [0.10, 0.07, 0.04], spark: [0.38, 0.56] },
+];
+
+/* Section name → painting index mapping (must match data-scene attributes in HTML)
+   WARNING: If a data-scene value doesn't match a key here, that section will
+   silently fall back to the first painting. Double-check your spelling! */
+const sceneMap = { 'painting-1': 0, 'painting-2': 1, 'painting-3': 2 };
+
+// Validate: warn about data-scene values not in sceneMap
+document.querySelectorAll('[data-scene]').forEach(el => {
+  if (!(el.dataset.scene in sceneMap)) {
+    console.warn(`[renaissance26skills] data-scene="${el.dataset.scene}" not found in sceneMap. Will fall back to first painting.`);
+  }
+});
+
+/* ═══════════════════════════════════════
+   ENGINE — no need to modify below
+   ═══════════════════════════════════════ */
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.domElement.id = 'bg3d';
+document.body.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const loader = new THREE.TextureLoader();
+
+/* ═══ POM SHADER ═══ */
+const POM_FRAG = `
+  uniform sampler2D image;
+  uniform sampler2D depth;
+  uniform vec3 uCameraPos;
+  uniform float uHeight;
+  uniform float uQuality;
+  uniform float uZoom;
+  uniform float uOpacity;
+  uniform vec3 uTint;
+  uniform float uTintStrength;
+  uniform float uTime;
+  uniform vec2 uMouse;
+  uniform float uWave;
+  uniform float uWater; // breathing glow effect
+  uniform float uSpark; // mouse-triggered spark effect
+  uniform vec2 uSparkPos; // spark contact point
+  varying vec2 vUv;
+
+  vec4 sampleTex(sampler2D tex, vec2 uv) {
+    vec2 m = uv;
+    if(m.x<0.)m.x=-m.x; if(m.x>1.)m.x=2.-m.x;
+    if(m.y<0.)m.y=-m.y; if(m.y>1.)m.y=2.-m.y;
+    return texture2D(tex, clamp(m,.001,.999));
+  }
+
+  void main() {
+    vec2 uv = (vUv - 0.5) / uZoom + 0.5;
+    vec2 camXY = uCameraPos.xy;
+    vec3 origin = vec3(uv + camXY, 0.0);
+    vec3 target = vec3(uv, 1.0);
+    float probe = 1.0/mix(50.,120.,uQuality);
+    float fine = 1.0/mix(200.,2000.,uQuality);
+    float safe = 1.0 - uHeight;
+    vec2 hitUV = uv;
+    float hitDepth = 0.0;
+    float walk = 0.0;
+
+    for(int i=0;i<200;i++){
+      if(walk>1.)break; walk+=probe;
+      vec3 p=mix(origin,target,mix(safe,1.,walk));
+      hitUV=p.xy;
+      hitDepth=sampleTex(depth,hitUV).r;
+      if((1.-p.z)<uHeight*hitDepth) break;
+    }
+    for(int i=0;i<100;i++){
+      walk-=fine;
+      vec3 p=mix(origin,target,mix(safe,1.,walk));
+      hitUV=p.xy;
+      hitDepth=sampleTex(depth,hitUV).r;
+      if((1.-p.z)>=uHeight*hitDepth) break;
+    }
+
+    vec4 color = sampleTex(image, hitUV);
+    if(hitUV.x<-0.05||hitUV.x>1.05||hitUV.y<-0.05||hitUV.y>1.05)
+      color=vec4(0.,0.,0.,1.);
+
+    // Spotlight
+    vec2 spotPos = vec2(0.5 + uMouse.x*0.2, 0.5 + uMouse.y*0.2);
+    float spotDist = distance(vUv, spotPos);
+    float spotlight = 1.0 - smoothstep(0.0, 0.55, spotDist) * 0.4;
+    float warmSpot = smoothstep(0.35, 0.0, spotDist) * 0.15;
+    color.rgb *= spotlight;
+    color.r += warmSpot;
+    color.g += warmSpot * 0.6;
+
+    // Depth shading
+    float shade = 0.75 + hitDepth * 0.25;
+    color.rgb *= shade;
+    float farTint = (1.0 - hitDepth) * 0.06;
+    color.r -= farTint * 0.3;
+    color.b += farTint;
+
+    // ═══ BREATHING GLOW (uWater) ═══
+    if (uWater > 0.0) {
+      float bandCenter = 0.15;
+      float bandDist = abs(vUv.y - bandCenter);
+      float band = smoothstep(0.2, 0.0, bandDist);
+      float breath = sin(uTime * 0.4) * 0.1 + sin(uTime * 0.25) * 0.06;
+      color.rgb *= 1.0 + breath * band * uWater;
+      float shimmer = sin(vUv.x * 8.0 + uTime * 0.6) * 0.3 + 0.7;
+      float glow = band * 0.45 * shimmer;
+      color.rgb += vec3(1.0, 0.9, 0.7) * glow * (1.0 + sin(uTime * 0.3) * 0.25) * uWater;
+    }
+
+    // ═══ MOUSE-TRIGGERED SPARK (uSpark) ═══
+    if (uSpark > 0.0) {
+      float distToTouch = distance(vUv, uSparkPos);
+      float mousePos_x = 0.5 + uMouse.x * 0.3;
+      float mousePos_y = 0.5 + uMouse.y * 0.3;
+      float mouseToTouch = distance(vec2(mousePos_x, mousePos_y), uSparkPos);
+      float intensity = smoothstep(0.2, 0.05, mouseToTouch);
+      if (intensity > 0.01) {
+        float innerGlow = smoothstep(0.035, 0.0, distToTouch);
+        color.rgb += vec3(1.0, 0.95, 0.85) * innerGlow * 1.3 * intensity * uSpark;
+        float outerGlow = smoothstep(0.1, 0.0, distToTouch);
+        float sparkShimmer = sin(distToTouch * 50.0 - uTime * 5.0) * 0.25 + 0.75;
+        color.rgb += vec3(1.0, 0.88, 0.6) * outerGlow * sparkShimmer * 0.5 * intensity * uSpark;
+        float radiance = smoothstep(0.5, 0.0, distToTouch) * intensity * 0.12;
+        color.rgb *= 1.0 + radiance * uSpark;
+      }
+    }
+
+    // Atmosphere + color grade
+    color.rgb = mix(color.rgb, uTint, uTintStrength);
+    color.r += 0.012; color.b -= 0.006;
+    color.rgb = (color.rgb - 0.5) * 1.08 + 0.5;
+
+    // Vignette
+    vec2 away = vUv*(1.-vUv);
+    color.rgb *= clamp(pow(15.*away.x*away.y, 0.22), 0., 1.);
+
+    // Wave wipe
+    if (uWave < 0.99) {
+      float waveY = uWave * 1.6 - 0.3;
+      float wave = waveY
+        + sin(vUv.x * 4.0 + uTime * 1.2) * 0.035
+        + sin(vUv.x * 7.0 - uTime * 0.8) * 0.02
+        + sin(vUv.x * 2.0 + uTime * 0.5) * 0.05
+        + sin(vUv.x * 12.0 + uTime * 1.8) * 0.008;
+      float mask = smoothstep(wave + 0.06, wave - 0.06, vUv.y);
+
+      // Metallic edge glow
+      float edgeDist = vUv.y - wave;
+      float glowZone = smoothstep(0.08, -0.01, edgeDist) * smoothstep(-0.05, 0.0, edgeDist);
+      float n1 = fract(sin(vUv.x * 93.7 + vUv.y * 47.3) * 43758.5);
+      float n2 = fract(sin(vUv.x * 57.1 + vUv.y * 131.9) * 28461.2);
+      float scatter = smoothstep(0.6, 0.9, n1) * smoothstep(0.5, 0.85, n2) * glowZone;
+      float spec = pow(max(0.0, sin(vUv.x * 10.0 + uMouse.x * 8.0 + uTime * 0.3)), 12.0) * glowZone * 0.3;
+      color.rgb += vec3(1.0, 0.93, 0.82) * glowZone * 0.18;
+      color.rgb += vec3(1.0, 0.95, 0.88) * scatter * 0.8;
+      color.rgb += vec3(1.0, 0.97, 0.92) * spec * 2.0;
+
+      color.a *= mask * uOpacity;
+    } else {
+      color.a *= uOpacity;
+    }
+    gl_FragColor = color;
+  }
+`;
+const POM_VERT = 'varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position,1.);}';
+
+/* ═══ CREATE QUADS ═══ */
+const quads = [];
+const videoEls = [];
+paintings.forEach((p, idx) => {
+  // Image texture: video or static
+  let imgTex;
+  let videoEl = null;
+  if (p.video) {
+    videoEl = document.createElement('video');
+    videoEl.src = p.video;
+    videoEl.loop = true; videoEl.muted = true; videoEl.playsInline = true; videoEl.preload = 'auto';
+    videoEl.play().catch(() => {});
+    imgTex = new THREE.VideoTexture(videoEl);
+    imgTex.minFilter = THREE.LinearFilter;
+  } else {
+    imgTex = loader.load(p.img, undefined, undefined, () => {
+      console.error(`[renaissance26skills] Failed to load image: ${p.img}`);
+    });
+    imgTex.minFilter = THREE.LinearFilter;
+  }
+  videoEls.push(videoEl);
+
+  // Depth texture: real or 1x1 gray placeholder
+  let depthTex;
+  if (p.depth) {
+    depthTex = loader.load(p.depth, undefined, undefined, () => {
+      console.error(`[renaissance26skills] Failed to load depth map: ${p.depth}`);
+    });
+    depthTex.minFilter = THREE.LinearFilter;
+  } else {
+    depthTex = new THREE.DataTexture(new Uint8Array([128,128,128,255]),1,1,THREE.RGBAFormat);
+  }
+
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      image: { value: imgTex },
+      depth: { value: depthTex },
+      uCameraPos: { value: new THREE.Vector3(0,0,0) },
+      uHeight: { value: CONFIG.depthHeight },
+      uQuality: { value: CONFIG.pomQuality },
+      uZoom: { value: 1.0 },
+      uOpacity: { value: idx === 0 ? 1.0 : 0.0 },
+      uTint: { value: new THREE.Vector3(...p.tint) },
+      uTintStrength: { value: 0.05 },
+      uTime: { value: 0 },
+      uMouse: { value: new THREE.Vector2(0, 0) },
+      uWave: { value: idx === 0 ? 1.0 : 0.0 },
+      uWater: { value: 0.0 },
+      uSpark: { value: 0.0 },
+      uSparkPos: { value: new THREE.Vector2(0.5, 0.5) },
+    },
+    vertexShader: POM_VERT, fragmentShader: POM_FRAG, transparent: true,
+  });
+  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat);
+  quad.renderOrder = idx;
+  scene.add(quad);
+  quads.push({ mat, tint: p.tint, hasVideo: !!p.video, water: !!p.water, spark: p.spark || null });
+});
+
+/* ═══ BLOOM ═══ */
+const composer = new THREE.EffectComposer(renderer);
+composer.addPass(new THREE.RenderPass(scene, camera));
+const bloomPass = new THREE.UnrealBloomPass(
+  new THREE.Vector2(innerWidth, innerHeight), 0.35, 0.8, 0.85
+);
+composer.addPass(bloomPass);
+
+/* ═══ PARTICLES ═══ */
+const particleCanvas = document.createElement('canvas');
+particleCanvas.style.cssText = 'position:fixed;inset:0;z-index:1;pointer-events:none';
+document.body.insertBefore(particleCanvas, document.querySelector('.page'));
+const pCtx = particleCanvas.getContext('2d');
+const DPR = Math.min(devicePixelRatio, 2);
+let PW, PH;
+function resizeP() { PW = particleCanvas.width = innerWidth * DPR; PH = particleCanvas.height = innerHeight * DPR; }
+resizeP();
+const parts = [];
+for (let i = 0; i < CONFIG.particleCount; i++) parts.push({
+  x: Math.random(), y: Math.random(), s: 0.3+Math.random()*3,
+  sp: 0.02+Math.random()*0.15, ph: Math.random()*Math.PI*2,
+  bright: Math.random()>0.5, mf: Math.random()*0.4,
+});
+
+/* ═══ STATE ═══ */
+const secs = document.querySelectorAll('[data-scene]');
+let activeIdx = 0, mx = 0, my = 0, smx = 0, smy = 0, t = 0;
+let introProgress = 0, introComplete = false;
+
+const quadState = quads.map((q, i) => ({
+  opacity: i===0?1:0, zoom:1, height:CONFIG.depthHeight, tintStrength:0.05,
+  wave: i===0?1:0,
+}));
+
+document.addEventListener('mousemove', e => {
+  mx = (e.clientX/innerWidth-0.5); my = -(e.clientY/innerHeight-0.5);
+});
+window.addEventListener('scroll', () => {
+  const mid = scrollY+innerHeight*0.4;
+  let s = Object.keys(sceneMap)[0];
+  secs.forEach(el => { if(mid>=el.offsetTop && mid<el.offsetTop+el.offsetHeight) s=el.dataset.scene; });
+  activeIdx = sceneMap[s]||0;
+}, { passive: true });
+
+/* ═══ ANIMATION ═══ */
+function animate() {
+  requestAnimationFrame(animate);
+  t += 0.016;
+  smx += (mx-smx)*CONFIG.mouseSmoothing;
+  smy += (my-smy)*CONFIG.mouseSmoothing;
+
+  // Intro
+  if (!introComplete) {
+    introProgress = Math.min(1, introProgress+0.016/CONFIG.introDuration);
+    const ip = introProgress*introProgress*(3-2*introProgress);
+    quadState[0].zoom = 1/(0.7+ip*0.3);
+    quadState[0].height = ip*CONFIG.depthHeight;
+    quadState[0].tintStrength = 0.3*(1-ip)+0.05;
+    bloomPass.strength = 0.1+ip*0.25;
+    if (introProgress>=1) introComplete = true;
+  }
+
+  // Wave targets from scroll
+  const waveTargets = paintings.map((_,i) => i===0?1:0);
+  for (let idx=1; idx<paintings.length; idx++) {
+    const els = Array.from(secs).filter(el=>(sceneMap[el.dataset.scene]||0)===idx);
+    if (els.length>0) {
+      const start = els[0].offsetTop;
+      const end = els[els.length-1].offsetTop+els[els.length-1].offsetHeight;
+      const range = Math.max(end-start, innerHeight*0.3);
+      waveTargets[idx] = Math.max(0,Math.min(1,(scrollY+innerHeight*0.4-start)/(range*0.4)));
+    }
+  }
+
+  // Update quads
+  quads.forEach((q, idx) => {
+    const qs = quadState[idx];
+    qs.wave += (waveTargets[idx]-qs.wave)*CONFIG.waveSmoothing;
+    const isRevealed = qs.wave>0.01;
+    const hasAbove = (idx<paintings.length-1) && (quadState[idx+1].wave>0.01 && quadState[idx+1].wave<0.99);
+    qs.opacity = (isRevealed||hasAbove)?1:0;
+    if(isRevealed) qs.height = Math.min(qs.wave,1)*CONFIG.depthHeight;
+
+    q.mat.depthTest = false;
+    q.mat.renderOrder = idx;
+    q.mat.uniforms.uOpacity.value = qs.opacity;
+    if (qs.opacity>0.01) {
+      // Video: no parallax/depth. Static: full parallax.
+      const para = q.hasVideo ? 0 : CONFIG.parallaxStrength;
+      const depthScale = q.hasVideo ? 0 : 1;
+      q.mat.uniforms.uCameraPos.value.set(smx*para, smy*para, 0);
+      q.mat.uniforms.uMouse.value.set(smx, smy);
+      q.mat.uniforms.uZoom.value = qs.zoom;
+      q.mat.uniforms.uHeight.value = qs.height * depthScale;
+      q.mat.uniforms.uTintStrength.value = qs.tintStrength;
+      q.mat.uniforms.uTime.value = t;
+      q.mat.uniforms.uWave.value = qs.wave;
+      q.mat.uniforms.uWater.value = q.water ? 1.0 : 0.0;
+      q.mat.uniforms.uSpark.value = q.spark ? 1.0 : 0.0;
+      if (q.spark) q.mat.uniforms.uSparkPos.value.set(q.spark[0], q.spark[1]);
+    }
+  });
+
+  // Bloom
+  if (introComplete) {
+    const bt = CONFIG.bloomPerScene[activeIdx]||0.35;
+    bloomPass.strength += (bt-bloomPass.strength)*0.03;
+  }
+
+  composer.render();
+
+  // Particles
+  pCtx.clearRect(0,0,PW,PH);
+  const mcx=(0.5+smx)*PW, mcy=(0.5-smy)*PH;
+  const sg=pCtx.createRadialGradient(mcx,mcy,0,mcx,mcy,PH*0.5);
+  sg.addColorStop(0,'rgba(255,230,180,0.18)');
+  sg.addColorStop(0.15,'rgba(255,220,170,0.10)');
+  sg.addColorStop(0.4,'rgba(255,210,160,0.04)');
+  sg.addColorStop(1,'transparent');
+  pCtx.fillStyle=sg; pCtx.fillRect(0,0,PW,PH);
+  parts.forEach(p => {
+    let bx=(p.x*PW+Math.sin(t*p.sp+p.ph)*12+PW)%PW;
+    let by=(p.y*PH+Math.cos(t*p.sp*0.7+p.ph)*10+PH)%PH;
+    const px=bx+(mcx-bx)*p.mf+smx*30, py=by+(mcy-by)*p.mf-smy*20;
+    const dm=Math.hypot(px-mcx,py-mcy)/PW;
+    const a=0.03+0.1*Math.sin(t*1.2+p.ph)+Math.max(0,1-dm*3)*0.15;
+    if(p.bright){
+      const g=pCtx.createRadialGradient(px,py,0,px,py,p.s*DPR*6);
+      g.addColorStop(0,`rgba(255,240,200,${a*0.8})`);
+      g.addColorStop(0.4,`rgba(255,230,180,${a*0.3})`);
+      g.addColorStop(1,'rgba(255,240,200,0)');
+      pCtx.fillStyle=g;
+      pCtx.fillRect(px-p.s*DPR*6,py-p.s*DPR*6,p.s*DPR*12,p.s*DPR*12);
+    }
+    pCtx.fillStyle=p.bright?`rgba(255,240,200,${a*2.5})`:`rgba(200,185,150,${a})`;
+    pCtx.beginPath();pCtx.arc(px,py,p.s*DPR,0,Math.PI*2);pCtx.fill();
+  });
+}
+animate();
+
+/* ═══ RESIZE ═══ */
+window.addEventListener('resize', () => {
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+  resizeP();
+});
+
+/* ═══ SCROLL REVEAL ═══ */
+const rvs = document.querySelectorAll('.rv');
+const io = new IntersectionObserver(es => {
+  es.forEach(e => { if(e.isIntersecting){e.target.classList.add('vis');io.unobserve(e.target)} });
+}, { threshold: .1 });
+rvs.forEach(el => io.observe(el));
+
+// ═══ SLIDING GOLD DOT ═══
+const dot = document.createElement('div');
+dot.className = 'project-dot';
+document.body.appendChild(dot);
+const projectScreens = document.querySelectorAll('.project-screen');
+function updateDot() {
+  let ap = null;
+  const vm = scrollY + innerHeight * 0.5;
+  projectScreens.forEach(s => { if (vm >= s.offsetTop && vm < s.offsetTop + s.offsetHeight) ap = s; });
+  if (ap) {
+    const inner = ap.querySelector('.project-inner');
+    if (inner) {
+      const r = inner.getBoundingClientRect();
+      dot.style.transform = `translate(${r.left-44}px, ${r.top+r.height*0.5-4}px)`;
+      dot.classList.add('active');
+    }
+  } else { dot.classList.remove('active'); }
+}
+window.addEventListener('scroll', updateDot, { passive: true });
+updateDot();
+})();
+</script>
+</body>
+</html>
